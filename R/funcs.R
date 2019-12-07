@@ -304,7 +304,7 @@ admm4 <- function(x, xnum, y, lam.l1, lam.l2, diagonal, zz=NULL, rho, niter, aa=
     if (trace > 0) cat("Computing zz...", fill=TRUE)
     zz <- as.numeric(compute.interactions.c(x, diagonal=diagonal))
   }
-  else if (class(zz) == "matrix") zz <- as.numeric(zz)
+  else if ("matrix" %in% class(zz)) zz <- as.numeric(zz)
   if (is.null(aa)) {
     aa <- list(u=matrix(0, p, p),
                th=matrix(0, p, p),
@@ -661,7 +661,7 @@ admm4.logistic <- function(x, xnum, y, lam.l1, lam.l2, diagonal, zz=NULL, rho=10
     if (trace > 0) cat("Computing zz...", fill=TRUE)
     zz <- as.numeric(compute.interactions.c(x, diagonal=diagonal))
   }
-  else if (class(zz) == "matrix") zz <- as.numeric(zz)
+  else if ("matrix" %in% class(zz)) zz <- as.numeric(zz)
   if (is.null(aa)) {
     aa <- list(u=matrix(0, p, p),
                th=matrix(0, p, p),
