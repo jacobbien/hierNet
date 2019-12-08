@@ -267,7 +267,7 @@ predict.hierNet <- function(object, newx, newzz=NULL, ...) {
   newzz <- as.numeric(newzz)
   newx <- as.numeric(newx)
   stopifnot(is.finite(newzz), is.finite(newx))
-  if (class(object$bp) == "numeric")
+  if (!("matrix" %in% class(object$bp)))
     yhatt <- Compute.yhat.c(newx, newzz, object) + object$my
   else {
     nlam <- ncol(object$bp)
