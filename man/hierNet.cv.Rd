@@ -18,7 +18,6 @@ will be taken from this object.}
 \item{nfolds}{Number of cross-validation folds}
 \item{folds}{(Optional) user-supplied cross-validation folds.  If provided, nfolds is ignored.}
 \item{trace}{Verbose output? 0=no, 1=yes}
-\item{...}{Additional arguments to be passed to hierNet.path or hierNet.logistic.path}
 }
 \value{
 \item{lamlist}{Vector of lambda values tried}
