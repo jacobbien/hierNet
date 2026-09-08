@@ -1,3 +1,83 @@
+#' A Lasso for interactions
+#' 
+#' One of the main functions in the hierNet package. Builds a regression model
+#' with hierarchically constrained pairwise interactions.  Required inputs are
+#' an x matrix of features (the columns are the features) and a y vector of
+#' values. Reasonably fast for moderate sized problems (100-200 variables). We
+#' are currently working on an alternate algorithm for large scale problems.
+#' 
+#' 
+#' @param x A matrix of predictors, where the rows are the samples and the
+#' columns are the predictors
+#' @param y A vector of observations, where length(y) equals nrow(x)
+#' @param lam Regularization parameter (>0).  L1 penalty param is \code{lam *
+#' (1-delta)}.
+#' @param delta Elastic Net parameter. Squared L2 penalty param is \code{lam *
+#' delta}. Not a tuning parameter: Think of as fixed and small. Default 1e-8.
+#' @param strong Flag specifying strong hierarchy (TRUE) or weak hierarchy
+#' (FALSE). Default FALSE.
+#' @param diagonal Flag specifying whether to include "pure" quadratic terms,
+#' th_jjX_j^2, in the model.  Default TRUE.
+#' @param aa An *optional* argument, a list with results from a previous call
+#' @param zz An *optional* argument, a matrix whose columns are products of
+#' features, computed by the function compute.interactions.c
+#' @param center Should features be centered? Default TRUE; FALSE should rarely
+#' be used.  This option is available for special uses only
+#' @param stand.main Should main effects be standardized? Default TRUE.
+#' @param stand.int Should interactions be standardized? Default FALSE.
+#' @param rho ADMM parameter: tuning parameter (>0) for ADMM. If there are
+#' convergence problems, try decreasing \code{rho}. Default n.
+#' @param niter ADMM parameter: number of iterations
+#' @param sym.eps ADMM parameter: threshold for symmetrizing with strong=TRUE
+#' @param step Stepsize for generalized gradient descent
+#' @param maxiter Maximum number of iterations for generalized gradient descent
+#' @param backtrack Backtrack parameter for generalized gradient descent
+#' @param tol Error tolerance parameter for generalized gradient descent
+#' @param trace Output option; trace=1 gives verbose output
+#' @return \item{bp}{p-vector of estimated "positive part" main effect (p=#
+#' features)} \item{bn}{p-vector of estimated "negative part" main effect;
+#' overall main effect estimated coefficients are bp-bn } \item{th}{ Matrix of
+#' estimated interaction coefficients, of dimension p by p. Note: when output
+#' from hierNet is printed, th is symmetrized (set to (th+t(th))/2) for
+#' simplicity.} \item{obj}{Value of objective function at minimum.}
+#' \item{lam}{Value of lambda used} \item{type}{Type of model fit- "gaussian"
+#' or "logistic" (binomial)} \item{mx}{ p-vector of column means of x}
+#' \item{sx}{ p-vector of column standard deviations of x} \item{my}{ mean of
+#' y} \item{mzz}{ column means of feature product matrix} \item{szz}{ column
+#' standard deviations of feature product matrix} \item{call}{The call to
+#' hierNet}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{predict.hierNet}, \link{hierNet.cv}, \link{hierNet.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' # fit a single hierNet model
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' fit=hierNet(x,y,lam=50)
+#' print(fit)
+#' 
+#' # try strong (rather than weak) hierarchy
+#' fit=hierNet(x,y,lam=50, strong=TRUE)
+#' print(fit)
+#' 
+#' # a typical analysis including cross-validation
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' fit=hierNet.path(x,y)
+#' fitcv=hierNet.cv(fit,x,y)
+#' print(fitcv)
+#' 
+#' lamhat=fitcv$lamhat.1se
+#' fit2=hierNet(x,y,lam=lamhat)
+#' yhat=predict(fit2,x)
+#' 
+#' @export hierNet
 hierNet <- function(x, y, lam, delta=1e-8, strong=FALSE, diagonal=TRUE, aa=NULL, zz=NULL, center=TRUE, stand.main=TRUE, stand.int=FALSE, 
                     rho=nrow(x), niter=100, sym.eps=1e-3,
                     step=1, maxiter=2000, backtrack=0.2, tol=1e-5,
@@ -172,6 +252,82 @@ cat(c("lamhat=",round(x$lamhat,2),"lamhat.1se=",round(x$lamhat.1se,2)),fill=T)
 }
 
 
+
+
+
+
+#' Fit a path of hierNet models- lasso models with interactions
+#' 
+#' One of the main functions in the hierNet package. Fits a path of hierNet
+#' models over different values of the regularization parameter. Calls hierNet,
+#' which builds a regression model with hierarchically constrained pairwise
+#' interactions.  Required inputs are an x matrix of features (the columns are
+#' the features) and a y vector of values. Reasonably fast for moderate sized
+#' problems (100-200 variables). We are currently working on an alternate
+#' algorithm for large scale problems.
+#' 
+#' 
+#' @param x A matrix of predictors, where the rows are the samples and the
+#' columns are the predictors
+#' @param y A vector of observations, where length(y) equals nrow(x)
+#' @param lamlist Optional vector of values of lambda (the regularization
+#' parameter). L1 penalty param is \code{lamdbda * (1-delta)}.
+#' @param delta Elastic Net parameter. Squared L2 penalty param is \code{lambda
+#' * delta}. Not a tuning parameter: Think of as fixed and small. Default 1e-8.
+#' @param minlam Optional minimum value for lambda
+#' @param maxlam Optional maximum value for lambda
+#' @param nlam Number of values of lambda to be tried
+#' @param flmin Fraction of maxlam; minlam= flmin*maxlam. If computation is
+#' slow, try increasing flmin to focus on the sparser part of the path
+#' @param diagonal Flag specifying whether to include "pure" quadratic terms,
+#' th_jjX_j^2, in the model.  Default TRUE.
+#' @param strong Flag specifying strong hierarchy (true) or weak hierarchy
+#' (false). Default false
+#' @param aa An *optional* argument, a list with results from a previous call
+#' @param zz An *optional* argument, a matrix whose columns are products of
+#' features, computed by the function compute.interactions.c
+#' @param stand.main Should main effects be standardized? Default TRUE
+#' @param stand.int Should interactions be standardized? Default FALSE
+#' @param rho ADMM parameter: tuning parameter (>0) for ADMM. If there are
+#' convergence problems, try decreasing rho. Default n.
+#' @param niter ADMM parameter: number of iterations
+#' @param sym.eps ADMM parameter Thresholding for symmetrizing with strong=TRUE
+#' @param step Stepsize for generalized gradient descent
+#' @param maxiter Maximum number of iterations for generalized gradient descent
+#' @param backtrack Backtrack parameter for generalized gradient descent
+#' @param tol Error tolerance parameter for generalized gradient descent
+#' @param trace Output option; trace=1 gives verbose output
+#' @return
+#' \item{bp}{p by nlam matrix of estimated "positive part" main effects
+#' (p=#variables)}
+#' \item{bn}{p by nlam matrix of estimated "negative part" main
+#' effects}
+#' \item{th}{p by p by nlam array of estimated interaction
+#' coefficients}
+#' \item{obj}{nlam values of objective function, one per lambda
+#' value}
+#' \item{lamlist}{Vector of values of lambda used}
+#' \item{mx}{ p-vector
+#' of column means of x}
+#' \item{sx}{ p-vector of column standard deviations of
+#' x}
+#' \item{my}{ mean of y}
+#' \item{mzz}{ column means of feature product matrix}
+#' \item{szz}{ column standard deviations of feature product matrix}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet},\link{predict.hierNet}, \link{hierNet.cv}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' fit=hierNet.path(x,y)
+#' print(fit)
+#' 
+#' @export hierNet.path
 hierNet.path <- function(x, y, lamlist=NULL, delta=1e-8, minlam=NULL, maxlam=NULL, nlam=20, flmin=.01,
                          diagonal=TRUE, strong=FALSE, aa=NULL, zz=NULL,
                          stand.main=TRUE, stand.int=FALSE,
@@ -252,6 +408,43 @@ hierNet.path <- function(x, y, lamlist=NULL, delta=1e-8, minlam=NULL, maxlam=NUL
   out
 }
 
+
+
+
+
+#' Prediction function for hierNet and hierNet.logistic.
+#' 
+#' A function to perform prediction, using an x matrix and the output of the
+#' "hierNet" or "hiernet.logistic" function.
+#' 
+#' 
+#' @param object The results of a call to the "hierNet" or "hierNet.path" or
+#' function. The coefficients that are part of this object will be used for
+#' making predictions.
+#' @param newx The new x at which predictions should be made. Can be a vector
+#' or a matrix (one obseration per row).
+#' @param newzz Optional matrix of products of columns of newx, computed by
+#' compute.interactions.c
+#' @param ... additional arguments (not currently used)
+#' @return \item{yhat}{Vector of predictions for each observation. For logistic
+#' model, these are the estimated probabilities.}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet}, \link{hierNet.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' newx=matrix(rnorm(100*10),ncol=10)
+#' fit=hierNet(x,y,lam=50)
+#' yhat=predict(fit,newx)
+#' 
+#' fit=hierNet.path(x,y)
+#' yhat=predict(fit,newx)
+#' 
 predict.hierNet <- function(object, newx, newzz=NULL, ...) {
   n <- nrow(newx)
   if (is.null(object$sx))
@@ -291,6 +484,43 @@ predict.hierNet <- function(object, newx, newzz=NULL, ...) {
   return(yhatt)
 }
 
+
+
+
+
+#' Prediction function for hierNet.path and hierNet.logistic.path.
+#' 
+#' A function to perform prediction, using an x matrix and the output of the
+#' "hierNet.path" or "hiernet.logistic.path" functions.
+#' 
+#' 
+#' @param object The results of a call to the "hierNet" or "hierNet.path" or
+#' function. The coefficients that are part of this object will be used for
+#' making predictions.
+#' @param newx The new x at which predictions should be made. Can be a vector
+#' or a matrix (one obseration per row).
+#' @param newzz Optional matrix of products of columns of newx, computed by
+#' compute.interactions.c
+#' @param ... additional arguments (not currently used)
+#' @return \item{yhat}{Matrix of predictions, one row per observation. For
+#' logistic model, these are the estimated probabilities.}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet}, \link{hierNet.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' newx=matrix(rnorm(100*10),ncol=10)
+#' fit=hierNet(x,y,lam=50)
+#' yhat=predict(fit,newx)
+#' 
+#' fit=hierNet.path(x,y)
+#' yhat=predict(fit,newx)
+#' 
 predict.hierNet.path <- function(object, newx, newzz=NULL, ...){
  predict.hierNet(object, newx, newzz, ...)
 }
@@ -564,6 +794,79 @@ ggdescent.c <- function(x, xnum, zz, y, lam.l1, lam.l2, diagonal, rho, V, stepsi
 }
 
 
+
+
+
+
+#' A logistic regression Lasso for interactions
+#' 
+#' One of the main functions in the hierNet package. Builds a logistic
+#' regression model with hierarchically constrained pairwise interactions.
+#' Required inputs are an x matrix of features (the columns are the features)
+#' and a y vector of values. Reasonably fast for moderate sized problems
+#' (100-200 variables). We are currently working on a alternate algorithm for
+#' large scale problems.
+#' 
+#' 
+#' @param x A matrix of predictors, where the rows are the samples and the
+#' columns are the predictors
+#' @param y A vector of observations, with values 0 or 1, where length(y)
+#' equals nrow(x)
+#' @param lam Regularization parameter (>0).  L1 penalty param is \code{lam *
+#' (1-delta)}.
+#' @param delta Elastic Net parameter. Squared L2 penalty param is \code{lam *
+#' delta}. Not a tuning parameter: Think of as fixed and small. Default 1e-8.
+#' @param diagonal Flag specifying whether to include "pure" quadratic terms,
+#' th_jjX_j^2, in the model.  Default TRUE.
+#' @param strong Flag specifying strong hierarchy (TRUE) or weak hierarchy
+#' (FALSE). Default FALSE
+#' @param aa An *optional* argument, a list with results from a previous call
+#' @param zz An *optional* argument, a matrix whose columns are products of
+#' features, computed by the function compute.interactions.c
+#' @param center Should features be centered? Default TRUE; FALSE should rarely
+#' be used.  This option is available for special uses only
+#' @param stand.main Should main effects be standardized? Default TRUE
+#' @param stand.int Should interactions be standardized? Default FALSE
+#' @param rho ADMM parameter: tuning parameter (>0) for ADMM. If there are
+#' convergence problems, try decreasing \code{rho}. Default n.
+#' @param niter ADMM parameter: number of iterations
+#' @param sym.eps ADMM parameter Thresholding for symmetrizing with strong=TRUE
+#' @param step Stepsize for generalized gradient descent
+#' @param maxiter Maximum number of iterations for generalized gradient descent
+#' @param backtrack Backtrack parameter for generalized gradient descent
+#' @param tol Error tolerance parameter for generalized gradient descent
+#' @param trace Output option; trace=1 gives verbose output
+#' @return
+#' \item{b0}{Intercept}
+#' \item{bp}{p-vector of estimated "positive part"
+#' main effect (p=#features)}
+#' \item{bn}{p-vector of estimated "negative part"
+#' main effect; overall main effect estimated coefficients are bp-bn }
+#' \item{th}{Matrix of estimated interaction coefficients, of dimension p by p}
+#' \item{obj}{Value of objective function at minimum.}
+#' \item{lam}{Value of lambda used}
+#' \item{type}{Type of model fit- "gaussian" or "logistic"
+#' (binomial)}
+#' \item{mx}{p-vector of column means of x}
+#' \item{my}{Mean of y}
+#' \item{sx}{p-vector of column standard deviations of x}
+#' \item{mzz}{ column means of feature product matrix}
+#' \item{call}{The call to hierNet}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{predict.hierNet.logistic},\link{hierNet.logistic.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' y=1*(y>0)
+#' fit=hierNet.logistic(x,y,lam=5)
+#' print(fit)
+#' 
+#' @export hierNet.logistic
 hierNet.logistic <- function(x, y, lam, delta=1e-8, diagonal=TRUE, strong=FALSE, aa=NULL, zz=NULL, center=TRUE,
                              stand.main=TRUE, stand.int=FALSE,
                              rho=nrow(x), niter=100, sym.eps=1e-3,# ADMM params
@@ -790,6 +1093,44 @@ ADMM4.Lagrangian <- function(aa, xnum, zz, y, lam.l1, lam.l2, diagonal, rho) {
 }
 
 
+
+
+
+
+#' Prediction function for hierNet.logistic.
+#' 
+#' A function to perform prediction, using an x matrix and the output of the
+#' "hierNet.logistic" function or "hierNet.logistic.path".
+#' 
+#' 
+#' @param object The results of a call to the "hierNet.logistic" or
+#' "hierNet.logistic.path" or function. The coefficients that are part of this
+#' object will be used for making predictions.
+#' @param newx The new x at which predictions should be made. Can be a vector
+#' or a matrix (one observation per row).
+#' @param newzz Optional matrix of products of columns of newx, computed by
+#' compute.interactions.c
+#' @param ... additional arguments (not currently used)
+#' @return \item{yhat}{Matrix of predictions (probabilities), one row per
+#' observation}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet.logistic}, \link{hierNet.logistic.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' y=1*(y>0)
+#' newx=matrix(rnorm(100*10),ncol=10)
+#' fit=hierNet.logistic(x,y,lam=5)
+#' yhat=predict(fit,newx)
+#' 
+#' fit=hierNet.logistic.path(x,y)
+#' yhat=predict(fit,newx)
+#' 
 predict.hierNet.logistic <- function(object, newx, newzz=NULL, ...) {
   predict.hierNet(object, newx, newzz, ...)
 }
@@ -805,6 +1146,79 @@ critf.logistic <- function(x, y, lam.l1, lam.l2, b0, bp, bn, th) {
 
 twonorm <- function(x) {sqrt(sum(x * x))}
 
+
+
+
+
+#' Fit a path of logistic hierNet models- lasso models with interactions
+#' 
+#' One of the main functions in the hierNet package. Fits a logistic path of
+#' hierNet models over different values of the regularization parameter. Calls
+#' hierNet.logistic, which builds a regression model with hierarchically
+#' constrained pairwise interactions.  Required inputs are an x matrix of
+#' features (the columns are the features) and a y vector of values. Reasonably
+#' fast for moderate sized problems (100-200 variables). We are currently
+#' working on a alternate algorithm for large scale problems.
+#' 
+#' 
+#' @param x A matrix of predictors, where the rows are the samples and the
+#' columns are the predictors
+#' @param y A vector of observations equal to 0 or 1, where length(y) equals
+#' nrow(x)
+#' @param lamlist Optional vector of values of lambda (the regularization
+#' parameter).  L1 penalty param is \code{lambda * (1-delta)}.
+#' @param delta Elastic Net parameter. Squared L2 penalty param is \code{lambda
+#' * delta}. Not a tuning parameter: Think of as fixed and small. Default 1e-8.
+#' @param minlam Optional minimum value for lambda
+#' @param maxlam Optional maximum value for lambda
+#' @param flmin Fraction of maxlam; minlam= flmin*maxlam. If computation is
+#' slow, try increasing flmin to focus on the sparser part of the path
+#' @param nlam Number of values of lambda to be tried
+#' @param diagonal Flag specifying whether to include "pure" quadratic terms,
+#' th_jjX_j^2, in the model.  Default TRUE.
+#' @param stand.main Should main effects be standardized? Default TRUE
+#' @param stand.int Should interactions be standardized? Default FALSE
+#' @param strong Flag specifying strong hierarchy (TRUE) or weak hierarchy
+#' (FALSE). Default FALSE
+#' @param aa An *optional* argument, a list with results from a previous call
+#' @param zz An *optional* argument, a matrix whose columns are products of
+#' features, computed by the function compute.interactions.c
+#' @param rho ADMM parameter: tuning parameter (>0) for ADMM. If there are
+#' convergence problems, try decreasing \code{rho}. Default n.
+#' @param niter ADMM parameter: number of iterations
+#' @param sym.eps ADMM parameter Thresholding for symmetrizing with strong=TRUE
+#' @param step Stepsize for generalized gradient descent
+#' @param maxiter Maximum number of iterations for generalized gradient descent
+#' @param backtrack Backtrack parameter for generalized gradient descent
+#' @param tol Error tolerance parameter for generalized gradient descent
+#' @param trace Output option; trace=1 gives verbose output
+#' @return
+#' \item{bp}{p by nlam matrix of estimated "positive part" main effects 
+#' (p=#features)}
+#' \item{bn}{p by nlam matrix of estimated "negative part" main effects}
+#' \item{th}{p by p by nlam array of estimated interaction coefficients}
+#' \item{obj}{nlam values of objective function, one per lambda value}
+#' \item{lamlist}{Vector of values of lambda used}
+#' \item{mx}{p-vector of column means of x}
+#' \item{sx}{p-vector of column standard deviations of x}
+#' \item{my}{mean of y}
+#' \item{mzz}{column means of feature product matrix}
+#' \item{szz}{column standard deviations of feature product matrix}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet},\link{predict.hierNet}, \link{hierNet.cv}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' y=1*(y>0)
+#' fit=hierNet.logistic.path(x,y)
+#' print(fit)
+#' 
+#' @export hierNet.logistic.path
 hierNet.logistic.path <- function (x, y, lamlist=NULL, delta=1e-8, minlam=NULL, maxlam=NULL, flmin=.01, nlam=20, 
                                    diagonal=TRUE, strong=FALSE, aa=NULL, 
                                    zz=NULL, stand.main=TRUE, stand.int=FALSE,
@@ -906,6 +1320,65 @@ permute.rows <-function(x) {
   matrix(t(x)[order(mm)], n, p, byrow = TRUE)
 }
 
+
+
+
+
+#' Cross-validation function for hierNet
+#' 
+#' Uses cross-validation to estimate the regularization parameter for hierNet
+#' 
+#' 
+#' @param fit Object returned from call to hierNet.path or
+#' hierNet.logistic.path.  All parameter settings will be taken from this
+#' object.
+#' @param x A matrix of predictors, where the rows are the samples and the
+#' columns are the predictors
+#' @param y A vector of observations, where length(y) equals nrow(x)
+#' @param nfolds Number of cross-validation folds
+#' @param folds (Optional) user-supplied cross-validation folds.  If provided,
+#' nfolds is ignored.
+#' @param trace Verbose output? 0=no, 1=yes
+#' @return
+#' \item{lamlist}{Vector of lambda values tried}
+#' \item{cv.err}{Estimate of cross-validation error}
+#' \item{cv.se}{Estimated standard error of cross-validation estimate}
+#' \item{lamhat}{lambda value minimizing cv.err}
+#' \item{lamhat.1se}{largest lambda value with cv.err less than or equal to
+#' min(cv.err)+ SE }
+#' \item{folds}{Indices of folds used in cross-validation}
+#' \item{yhat}{n by nlam matrix of predicted values.  Here, ith prediction is
+#' based on training on all folds that do not include the ith data point.}
+#' \item{nonzero}{Vector giving number of non-zero coefficients for each lambda
+#' value}
+#' \item{call}{The call to hierNet.cv}
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet},\link{hierNet.path},
+#' \link{hierNet.logistic},\link{hierNet.logistic.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' fit=hierNet.path(x,y)
+#' fitcv=hierNet.cv(fit,x,y)
+#' print(fitcv)
+#' plot(fitcv)
+#' 
+#' 
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' y=1*(y>0)
+#' fit=hierNet.logistic.path(x,y)
+#' fitcv=hierNet.cv(fit,x,y)
+#' print(fitcv)
+#' plot(fitcv)
+#' 
+#' @export hierNet.cv
 hierNet.cv <- function(fit, x, y, nfolds=10, folds=NULL, trace=0) {
   this.call <- match.call()
   stopifnot(class(fit) == "hierNet.path")
@@ -992,6 +1465,38 @@ error.bars <-function(x, upper, lower, width = 0.02, ...) {
   range(upper, lower)
 }
 
+
+
+
+
+#' Variable importance for hierNet.
+#' 
+#' (This is an experimental function.)  Calculates a measure of the importance
+#' of each variable.
+#' 
+#' 
+#' @param fit The results of a call to the "hierNet"
+#' @param x The training set feature matrix used in call produced "fit"
+#' @param y The training set response vector used in call produced "fit"
+#' @param ... additional arguments (not currently used)
+#' @return Table of variable importance.
+#' @author Jacob Bien and Robert Tibshirani
+#' @seealso \link{hierNet}, \link{hierNet.path}
+#' @references Bien, J., Taylor, J., Tibshirani, R., (2013) "A Lasso for
+#' Hierarchical Interactions." Annals of Statistics. 41(3). 1111-1141.
+#' @examples
+#' 
+#' set.seed(12)
+#' x=matrix(rnorm(100*10),ncol=10)
+#' x=scale(x,TRUE,TRUE)
+#' y=x[,1]+2*x[,2]+ x[,1]*x[,2]+3*rnorm(100)
+#' newx=matrix(rnorm(100*10),ncol=10)
+#' fit=hierNet(x,y,lam=50)
+#' yhat=predict(fit,newx)
+#' 
+#' fit=hierNet.path(x,y)
+#' yhat=predict(fit,newx)
+#' 
 hierNet.varimp <- function(fit,x,y, ...) {
   # NOTE: uses 0.5 cutoff for logistic case
   lam=fit$lam
